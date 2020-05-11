@@ -297,7 +297,7 @@ class WebViewManager extends ActivityLifecycleHandler.ActivityAvailableListener 
        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
        webView.setVerticalScrollBarEnabled(false);
        webView.setHorizontalScrollBarEnabled(false);
-       webView.getSettings().setJavaScriptEnabled(true);
+       webView.getSettings().setJavaScriptEnabled(false);
 
        // Setup receiver for page events / data from JS
        webView.addJavascriptInterface(new OSJavaScriptInterface(), OSJavaScriptInterface.JS_OBJ_NAME);
