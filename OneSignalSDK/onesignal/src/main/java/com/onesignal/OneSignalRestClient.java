@@ -41,8 +41,6 @@ import java.util.Scanner;
 
 import org.json.JSONObject;
 
-import javax.net.ssl.HttpsURLConnection;
-
 class OneSignalRestClient {
    static abstract class ResponseHandler {
       void onSuccess(String response) {}
@@ -51,8 +49,10 @@ class OneSignalRestClient {
 
    static final String CACHE_KEY_GET_TAGS = "CACHE_KEY_GET_TAGS";
    static final String CACHE_KEY_REMOTE_PARAMS = "CACHE_KEY_REMOTE_PARAMS";
-   
-   private static final String BASE_URL = "https://onesignal.com/api/v1/";
+
+   private static final String OS_API_VERSION = "1";
+   private static final String OS_ACCEPT_HEADER = "application/vnd.onesignal.v" + OS_API_VERSION + "+json";
+   private static final String BASE_URL = "https://api.onesignal.com/";
    
    private static final int THREAD_ID = 10000;
    private static final int TIMEOUT = 120_000;
@@ -127,7 +127,7 @@ class OneSignalRestClient {
    
    private static Thread startHTTPConnection(String url, String method, JSONObject jsonBody, ResponseHandler responseHandler, int timeout, @Nullable String cacheKey) {
       int httpResponse = -1;
-      HttpsURLConnection con = null;
+      HttpURLConnection con = null;
       Thread callbackThread;
 
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -136,14 +136,13 @@ class OneSignalRestClient {
 
       try {
          OneSignal.Log(OneSignal.LOG_LEVEL.DEBUG, "OneSignalRestClient: Making request to: " + BASE_URL + url);
-         con = newHttpsURLConnection(url);
+         con = newHttpURLConnection(url);
 
          con.setUseCaches(false);
          con.setConnectTimeout(timeout);
          con.setReadTimeout(timeout);
          con.setRequestProperty("SDK-Version", "onesignal/android/" + OneSignal.VERSION);
-         KeyPinStore keystore = KeyPinStore.getInstance();
-         con.setSSLSocketFactory(keystore.getContext().getSocketFactory());
+         con.setRequestProperty("Accept", OS_ACCEPT_HEADER);
 
          if (jsonBody != null)
             con.setDoInput(true);
@@ -288,9 +287,5 @@ class OneSignalRestClient {
 
    private static HttpURLConnection newHttpURLConnection(String url) throws IOException {
       return (HttpURLConnection)new URL(BASE_URL + url).openConnection();
-   }
-
-   private static HttpsURLConnection newHttpsURLConnection(String url) throws IOException {
-      return (HttpsURLConnection)new URL(BASE_URL + url).openConnection();
    }
 }

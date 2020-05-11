@@ -65,6 +65,8 @@ import com.onesignal.OneSignalPackagePrivateHelper.NotificationTable;
 import com.onesignal.OneSignalPackagePrivateHelper.OneSignalPrefs;
 import com.onesignal.RestoreJobService;
 import com.onesignal.ShadowBadgeCountUpdater;
+import com.onesignal.ShadowCustomTabsClient;
+import com.onesignal.ShadowCustomTabsSession;
 import com.onesignal.ShadowGcmBroadcastReceiver;
 import com.onesignal.ShadowNotificationManagerCompat;
 import com.onesignal.ShadowOSUtils;
@@ -78,6 +80,7 @@ import com.onesignal.ShadowRoboNotificationManager.PostedNotification;
 import com.onesignal.StaticResetHelper;
 import com.onesignal.example.BlankActivity;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.junit.AfterClass;
@@ -101,6 +104,12 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
+import static com.onesignal.OneSignalPackagePrivateHelper.GenerateNotification.BUNDLE_KEY_ONESIGNAL_DATA;
+import static com.onesignal.OneSignalPackagePrivateHelper.NotificationBundleProcessor.PUSH_MINIFIED_BUTTONS_LIST;
+import static com.onesignal.OneSignalPackagePrivateHelper.NotificationBundleProcessor.PUSH_MINIFIED_BUTTON_ID;
+import static com.onesignal.OneSignalPackagePrivateHelper.NotificationBundleProcessor.PUSH_MINIFIED_BUTTON_TEXT;
+import static com.onesignal.OneSignalPackagePrivateHelper.GenerateNotification.BUNDLE_KEY_ACTION_ID;
+import static com.onesignal.OneSignalPackagePrivateHelper.GenerateNotification.BUNDLE_KEY_ANDROID_NOTIFICATION_ID;
 import static com.onesignal.OneSignalPackagePrivateHelper.NotificationBundleProcessor_ProcessFromGCMIntentService;
 import static com.onesignal.OneSignalPackagePrivateHelper.NotificationBundleProcessor_ProcessFromGCMIntentService_NoWrap;
 import static com.onesignal.OneSignalPackagePrivateHelper.NotificationOpenedProcessor_processFromContext;
@@ -129,7 +138,9 @@ import static org.robolectric.Shadows.shadowOf;
             ShadowBadgeCountUpdater.class,
             ShadowNotificationManagerCompat.class,
             ShadowOSUtils.class,
-            ShadowOSViewUtils.class
+            ShadowOSViewUtils.class,
+            ShadowCustomTabsClient.class,
+            ShadowCustomTabsSession.class
         },
         sdk = 21
 )
@@ -185,8 +196,8 @@ public class GenerateNotificationRunner {
 
    private static Intent createOpenIntent(int notifId, Bundle bundle) {
       return new Intent()
-          .putExtra("notificationId", notifId)
-          .putExtra("onesignal_data", OneSignalPackagePrivateHelper.bundleAsJSONObject(bundle).toString());
+          .putExtra(BUNDLE_KEY_ANDROID_NOTIFICATION_ID, notifId)
+          .putExtra(BUNDLE_KEY_ONESIGNAL_DATA, OneSignalPackagePrivateHelper.bundleAsJSONObject(bundle).toString());
    }
    
    private Intent createOpenIntent(Bundle bundle) {
@@ -1034,7 +1045,7 @@ public class GenerateNotificationRunner {
       intentGcm.setAction("com.google.android.c2dm.intent.RECEIVE");
       intentGcm.putExtra("message_type", "gcm");
       Bundle bundle = getBaseNotifBundle();
-      bundle.putString("o", "[{\"n\": \"text1\", \"i\": \"id1\"}]");
+      addButtonsToReceivedPayload(bundle);
       intentGcm.putExtras(bundle);
 
       GcmBroadcastReceiver gcmBroadcastReceiver = new GcmBroadcastReceiver();
@@ -1049,8 +1060,8 @@ public class GenerateNotificationRunner {
       PostedNotification lastNotification = postedNotifsIterator.next().getValue();
       
       assertEquals(1, lastNotification.notif.actions.length);
-      String json_data = shadowOf(lastNotification.notif.actions[0].actionIntent).getSavedIntent().getStringExtra("onesignal_data");
-      assertEquals("id1", new JSONObject(json_data).optString("actionSelected"));
+      String json_data = shadowOf(lastNotification.notif.actions[0].actionIntent).getSavedIntent().getStringExtra(BUNDLE_KEY_ONESIGNAL_DATA);
+      assertEquals("id1", new JSONObject(json_data).optString(BUNDLE_KEY_ACTION_ID));
    }
 
    @Test
@@ -1100,7 +1111,7 @@ public class GenerateNotificationRunner {
       intentGcm.setAction("com.google.android.c2dm.intent.RECEIVE");
       intentGcm.putExtra("message_type", "gcm");
       Bundle bundle = getBaseNotifBundle();
-      bundle.putString("o", "[{\"n\": \"text1\", \"i\": \"id1\"}]");
+      addButtonsToReceivedPayload(bundle);
       intentGcm.putExtras(bundle);
       
       GcmBroadcastReceiver gcmBroadcastReceiver = new GcmBroadcastReceiver();
@@ -1144,7 +1155,7 @@ public class GenerateNotificationRunner {
       Bundle bundle = getBaseNotifBundle();
       bundle.putString("pri", "10");
       bundle.putString("licon", "http://domain.com/image.jpg");
-      bundle.putString("o", "[{\"n\": \"text1\", \"i\": \"id1\"}]");
+      addButtonsToReceivedPayload(bundle);
       intentGcm.putExtras(bundle);
       
       GcmBroadcastReceiver gcmBroadcastReceiver = new GcmBroadcastReceiver();
@@ -1466,7 +1477,7 @@ public class GenerateNotificationRunner {
                      "        \"actionButtons\": [{\"id\": \"id1\", \"text\": \"button1\", \"icon\": \"ic_menu_share\"}," +
                      "                            {\"id\": \"id2\", \"text\": \"button2\", \"icon\": \"ic_menu_send\"}" +
                      "        ]," +
-                     "         \"actionSelected\": \"__DEFAULT__\"" +
+                     "         \"actionId\": \"__DEFAULT__\"" +
                      "      }," +
                      "\"u\":\"http://google.com\"," +
                      "\"i\":\"9764eaeb-10ce-45b1-a66d-8f95938aaa51\"" +
@@ -1556,6 +1567,20 @@ public class GenerateNotificationRunner {
       @Override
       protected boolean onNotificationProcessing(OSNotificationReceivedResult notification) {
          return false;
+      }
+   }
+
+   private void addButtonsToReceivedPayload(@NonNull Bundle bundle) {
+      try {
+         JSONArray buttonList = new JSONArray() {{
+            put(new JSONObject() {{
+               put(PUSH_MINIFIED_BUTTON_ID, "id1");
+               put(PUSH_MINIFIED_BUTTON_TEXT, "text1");
+            }});
+         }};
+         bundle.putString(PUSH_MINIFIED_BUTTONS_LIST, buttonList.toString());
+      } catch (JSONException e) {
+         e.printStackTrace();
       }
    }
 }
